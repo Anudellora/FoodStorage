@@ -1,4 +1,4 @@
-"""Консольное приложение FoodStorage: практическая работа № 2."""
+"""Консольное приложение FoodStorage: практическая работа № 3."""
 
 import argparse
 from copy import deepcopy
@@ -8,7 +8,7 @@ from pathlib import Path
 from products import add_product, find_product, search_products
 from stocks import (
     add_stock, available_quantity, consume_stock, expiring_stocks,
-    get_expiry_status, get_stock_status, inventory_statistics,
+    inventory_statistics,
     remove_stock, shopping_list, sort_stocks,
 )
 from storage import load_data, save_data
@@ -18,22 +18,22 @@ from utils import input_date, input_int, input_quantity, input_text
 DEFAULT_PATH = Path(__file__).resolve().parent / "data" / "inventory.json"
 
 
-def show_products(data: dict, query: str = "") -> None:
+def show_products(data: dict[str, list], query: str = "") -> None:
     """Вывести каталог и достаточность пригодного запаса."""
     products = search_products(data["products"], query)
     if not products:
         print("Продукты не найдены. Добавьте продукт через пункт 2.")
     for product in products:
         quantity = available_quantity(
-            data["stocks"], product["id"], date.today()
+            data["stocks"], product.id, date.today()
         )
-        status = get_stock_status(quantity, product["minimum_quantity"])
-        print(f"ID {product['id']}: {product['name']} — {quantity:g} "
-              f"{product['unit']}; минимум {product['minimum_quantity']:g}; "
+        status = product.get_stock_status(quantity)
+        print(f"{product} — {quantity:g} "
+              f"{product.unit}; минимум {product.minimum_quantity:g}; "
               f"{status}")
 
 
-def show_stocks(data: dict, urgent_only: bool = False) -> None:
+def show_stocks(data: dict[str, list], urgent_only: bool = False) -> None:
     """Показать партии по сроку годности, при необходимости с фильтром."""
     today = date.today()
     stocks = (expiring_stocks(data["stocks"], today) if urgent_only
@@ -41,15 +41,10 @@ def show_stocks(data: dict, urgent_only: bool = False) -> None:
     if not stocks:
         print("Подходящих партий нет.")
     for stock in stocks:
-        product = find_product(data["products"], stock["product_id"])
-        expiry = date.fromisoformat(stock["expiry_date"])
-        print(f"Партия {stock['id']}: {product['name']} — "
-              f"{stock['quantity']:g} {product['unit']}; "
-              f"годен до {expiry:%d.%m.%Y}; "
-              f"{get_expiry_status(expiry, today)}")
+        print(f"{stock}; {stock.get_expiry_status(today)}")
 
 
-def change_data(choice: str, data: dict) -> None:
+def change_data(choice: str, data: dict[str, list]) -> None:
     """Собрать пользовательский ввод и изменить рабочую копию данных."""
     if choice == "2":
         add_product(
@@ -65,7 +60,7 @@ def change_data(choice: str, data: dict) -> None:
         product = find_product(data["products"], product_id)
         add_stock(
             data["products"], data["stocks"], product_id,
-            input_quantity(f"Количество ({product['unit']}): ", True),
+            input_quantity(f"Количество ({product.unit}): ", True),
             input_date("Срок годности (ГГГГ-ММ-ДД): "),
         )
     else:
@@ -80,7 +75,7 @@ def change_data(choice: str, data: dict) -> None:
             remove_stock(data["stocks"], stock_id)
 
 
-def show_report(choice: str, data: dict) -> None:
+def show_report(choice: str, data: dict[str, list]) -> None:
     """Вывести каталог, поиск, партии, покупки или статистику."""
     if choice == "1":
         show_products(data)
@@ -106,7 +101,7 @@ def show_report(choice: str, data: dict) -> None:
               f"продуктов к покупке: {stats['need_purchase']}")
 
 
-def run_menu(path: Path, data: dict) -> None:
+def run_menu(path: Path, data: dict[str, list]) -> None:
     """Обрабатывать команды; сохранять изменения до замены данных в памяти."""
     while True:
         print("\n1. Продукты и остатки   2. Добавить продукт\n"

@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from storage import load_data, save_data
+from storage import load_data, save_data, serialize_data
 
 
 def test_missing_file_and_round_trip(tmp_path, inventory):
     path = tmp_path / "data" / "inventory.json"
     assert load_data(path) == {"products": [], "stocks": []}
     save_data(path, inventory)
-    assert load_data(path) == inventory
+    assert serialize_data(load_data(path)) == serialize_data(inventory)
     assert "Молоко" in path.read_text(encoding="utf-8")
 
 
@@ -29,10 +29,10 @@ def test_invalid_file_is_not_overwritten(tmp_path, text):
     ("quantity", -1), ("quantity", True), ("quantity", float("nan")),
     ("expiry_date", "2026-02-30"), ("product_id", 99),
 ])
-def test_invalid_batch_rejected_on_load(tmp_path, inventory, field, value):
-    inventory["stocks"][0][field] = value
+def test_invalid_batch_rejected_on_load(tmp_path, raw_inventory, field, value):
+    raw_inventory["stocks"][0][field] = value
     path = tmp_path / "invalid.json"
-    path.write_text(json.dumps(inventory), encoding="utf-8")
+    path.write_text(json.dumps(raw_inventory), encoding="utf-8")
     with pytest.raises(ValueError):
         load_data(path)
 
@@ -43,7 +43,7 @@ def test_failed_replace_preserves_previous_file(
     path = tmp_path / "inventory.json"
     save_data(path, inventory)
     previous = path.read_bytes()
-    inventory["stocks"][0]["quantity"] = 1
+    inventory["stocks"][0].consume(1)
 
     def fail_replace(self, target):
         raise PermissionError("Запись запрещена")

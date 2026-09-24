@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import main
-from storage import load_data
+from storage import load_data, save_data
 from utils import input_date, input_quantity
 
 
@@ -28,7 +28,7 @@ def test_cli_create_consume_and_reload(tmp_path):
                            capture_output=True, timeout=10)
     assert first.returncode == 0, first.stderr
     assert "Неизвестная команда" in first.stdout
-    assert load_data(path)["stocks"][0]["quantity"] == 1.5
+    assert load_data(path)["stocks"][0].quantity == 1.5
     second = subprocess.run(command, input="1\n9\n10\n0\n", text=True,
                             capture_output=True, timeout=10)
     assert second.returncode == 0, second.stderr
@@ -72,3 +72,35 @@ def test_eof_cancels_unfinished_operation(tmp_path):
     assert result.returncode == 0
     assert "Ввод прерван" in result.stdout
     assert not path.exists()
+
+
+def test_cli_object_display_search_filter_and_delete(tmp_path, inventory):
+    path = tmp_path / "inventory.json"
+    save_data(path, inventory)
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--data", str(path)],
+        input="4\n7\nМОЛ\n8\n6\n2\n10\n0\n", text=True,
+        capture_output=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Партия 1: Молоко — 2 л; годен до 26.09.2026" in result.stdout
+    assert "ID 1: Молоко" in result.stdout
+    assert "партий: 2" in result.stdout
+    assert [stock.id for stock in load_data(path)["stocks"]] == [1, 3]
+
+
+def test_failed_save_rolls_back_object_consumption(
+    tmp_path, inventory, monkeypatch, capsys,
+):
+    answers = iter(["5", "1", "1", "4", "0"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+
+    def fail_save(path, data):
+        raise PermissionError("Запись запрещена")
+
+    monkeypatch.setattr(main, "save_data", fail_save)
+    main.run_menu(tmp_path / "inventory.json", inventory)
+    output = capsys.readouterr().out
+    assert "Операция не выполнена" in output
+    assert output.count("Партия 1: Молоко — 2 л") == 2
+    assert inventory["stocks"][0].quantity == 2

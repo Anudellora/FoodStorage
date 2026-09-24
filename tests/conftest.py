@@ -2,9 +2,11 @@
 
 import pytest
 
+from storage import deserialize_data
+
 
 @pytest.fixture
-def inventory():
+def raw_inventory():
     return {
         "products": [
             {"id": 1, "name": "Молоко", "unit": "л", "minimum_quantity": 5},
@@ -19,3 +21,8 @@ def inventory():
              "expiry_date": "2027-09-24"},
         ],
     }
+
+
+@pytest.fixture
+def inventory(raw_inventory):
+    return deserialize_data(raw_inventory)

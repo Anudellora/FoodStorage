@@ -4,6 +4,12 @@ from datetime import date
 from math import isfinite
 
 
+def validate_identifier(value: int) -> None:
+    """Проверить ID независимо от источника создания объекта."""
+    if type(value) is not int or value <= 0:
+        raise ValueError("ID должен быть целым числом больше нуля.")
+
+
 def validate_quantity(value: float, positive: bool = False) -> None:
     """Отклонить отрицательные, бесконечные и нечисловые количества."""
     if type(value) not in (int, float) or not isfinite(value):

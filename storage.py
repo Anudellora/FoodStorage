@@ -6,6 +6,8 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
+from products import Product
+from stocks import Stock
 from utils import validate_quantity
 
 
@@ -54,20 +56,55 @@ def validate_data(data: dict) -> None:
             product_ids = ids
 
 
-def load_data(path: Path) -> dict:
+def deserialize_data(data: dict) -> dict[str, list]:
+    """Построить объекты из JSON ПР2 и восстановить общие ссылки."""
+    validate_data(data)
+    products = [
+        Product(item["id"], item["name"], item["unit"],
+                item["minimum_quantity"])
+        for item in data["products"]
+    ]
+    by_id = {product.id: product for product in products}
+    stocks = [
+        Stock(item["id"], by_id[item["product_id"]], item["quantity"],
+              date.fromisoformat(item["expiry_date"]))
+        for item in data["stocks"]
+    ]
+    return {"products": products, "stocks": stocks}
+
+
+def serialize_data(data: dict[str, list]) -> dict:
+    """Преобразовать объекты в JSON, проверив целостность связей."""
+    products, stocks = data["products"], data["stocks"]
+    if not all(isinstance(product, Product) for product in products):
+        raise ValueError("Каталог должен содержать объекты Product.")
+    if not all(isinstance(stock, Stock) for stock in stocks):
+        raise ValueError("Запасы должны содержать объекты Stock.")
+    by_id = {product.id: product for product in products}
+    for stock in stocks:
+        if by_id.get(stock.product.id) is not stock.product:
+            raise ValueError("Партия связана с продуктом вне каталога.")
+    serialized = {
+        "products": [product.to_dict() for product in products],
+        "stocks": [stock.to_dict() for stock in stocks],
+    }
+    validate_data(serialized)
+    return serialized
+
+
+def load_data(path: Path) -> dict[str, list]:
     """Загрузить JSON; отсутствие файла означает начало нового учёта."""
     try:
         with path.open(encoding="utf-8") as stream:
             data = json.load(stream)
     except FileNotFoundError:
         return {"products": [], "stocks": []}
-    validate_data(data)
-    return data
+    return deserialize_data(data)
 
 
-def save_data(path: Path, data: dict) -> None:
+def save_data(path: Path, data: dict[str, list]) -> None:
     """Заменить файл только после успешной записи полного снимка данных."""
-    validate_data(data)
+    serialized = serialize_data(data)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
@@ -76,7 +113,7 @@ def save_data(path: Path, data: dict) -> None:
             prefix=f".{path.name}.", suffix=".tmp", delete=False,
         ) as stream:
             temporary = Path(stream.name)
-            json.dump(data, stream, ensure_ascii=False, indent=2,
+            json.dump(serialized, stream, ensure_ascii=False, indent=2,
                       allow_nan=False)
             stream.write("\n")
             stream.flush()
