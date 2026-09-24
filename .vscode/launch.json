@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "FoodStorage: отладка ПР1",
+            "name": "FoodStorage: отладка ПР2",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",

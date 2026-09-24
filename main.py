@@ -1,66 +1,158 @@
-"""Начальный сценарий сервиса контроля запасов продуктов (ПР1)."""
+"""Консольное приложение FoodStorage: практическая работа № 2."""
 
-from datetime import date, timedelta
+import argparse
+from copy import deepcopy
+from datetime import date
+from pathlib import Path
 
-
-def get_stock_status(quantity: float, minimum_quantity: float) -> str:
-    """Определить, достаточно ли запаса относительно желаемого минимума."""
-    if quantity <= 0:
-        return "Запас отсутствует"
-    if quantity < minimum_quantity:
-        return "Запас нужно пополнить"
-    return "Запаса достаточно"
-
-
-def calculate_purchase_quantity(
-    quantity: float, minimum_quantity: float
-) -> float:
-    """Рассчитать недостающее количество до желаемого минимума."""
-    if quantity < minimum_quantity:
-        return minimum_quantity - quantity
-    return 0.0
+from products import add_product, find_product, search_products
+from stocks import (
+    add_stock, available_quantity, consume_stock, expiring_stocks,
+    get_expiry_status, get_stock_status, inventory_statistics,
+    remove_stock, shopping_list, sort_stocks,
+)
+from storage import load_data, save_data
+from utils import input_date, input_int, input_quantity, input_text
 
 
-def get_expiry_status(expiry_date: date, current_date: date) -> str:
-    """Определить состояние срока годности относительно указанной даты."""
-    days_left = (expiry_date - current_date).days
-    if days_left < 0:
-        return "Срок годности истёк"
-    if days_left == 0:
-        return "Срок годности истекает сегодня"
-    if days_left <= 3:
-        return f"Срок годности скоро истекает: осталось дней — {days_left}"
-    return f"Срок годности не истекает в ближайшие 3 дня: осталось {days_left}"
+DEFAULT_PATH = Path(__file__).resolve().parent / "data" / "inventory.json"
 
 
-def main() -> None:
-    """Проверить один запас и вывести результат для пользователя."""
-    product_name = "Молоко"
-    unit = "л"
-    quantity = float("2")
-    minimum_quantity = float("5")
-    current_date = date.today()
-    expiry_date = current_date + timedelta(days=2)
+def show_products(data: dict, query: str = "") -> None:
+    """Вывести каталог и достаточность пригодного запаса."""
+    products = search_products(data["products"], query)
+    if not products:
+        print("Продукты не найдены. Добавьте продукт через пункт 2.")
+    for product in products:
+        quantity = available_quantity(
+            data["stocks"], product["id"], date.today()
+        )
+        status = get_stock_status(quantity, product["minimum_quantity"])
+        print(f"ID {product['id']}: {product['name']} — {quantity:g} "
+              f"{product['unit']}; минимум {product['minimum_quantity']:g}; "
+              f"{status}")
 
-    available_quantity = quantity
-    if expiry_date < current_date:
-        available_quantity = 0.0
 
-    purchase_quantity = calculate_purchase_quantity(
-        available_quantity, minimum_quantity
-    )
+def show_stocks(data: dict, urgent_only: bool = False) -> None:
+    """Показать партии по сроку годности, при необходимости с фильтром."""
+    today = date.today()
+    stocks = (expiring_stocks(data["stocks"], today) if urgent_only
+              else sort_stocks(data["stocks"]))
+    if not stocks:
+        print("Подходящих партий нет.")
+    for stock in stocks:
+        product = find_product(data["products"], stock["product_id"])
+        expiry = date.fromisoformat(stock["expiry_date"])
+        print(f"Партия {stock['id']}: {product['name']} — "
+              f"{stock['quantity']:g} {product['unit']}; "
+              f"годен до {expiry:%d.%m.%Y}; "
+              f"{get_expiry_status(expiry, today)}")
 
-    print("FoodStorage — контроль запасов продуктов")
-    print(f"Продукт: {product_name}")
-    print(f"Количество: {quantity:g} {unit}")
-    print(f"Желаемый запас: {minimum_quantity:g} {unit}")
-    print(f"Дата проверки: {current_date:%d.%m.%Y}")
-    print(f"Срок годности: {expiry_date:%d.%m.%Y}")
-    print(get_expiry_status(expiry_date, current_date))
-    print(f"Пригодный запас: {available_quantity:g} {unit}")
-    print(get_stock_status(available_quantity, minimum_quantity))
-    print(f"Нужно купить: {purchase_quantity:g} {unit}")
+
+def change_data(choice: str, data: dict) -> None:
+    """Собрать пользовательский ввод и изменить рабочую копию данных."""
+    if choice == "2":
+        add_product(
+            data["products"], input_text("Название: "),
+            input_text("Единица измерения (кг, л, шт): "),
+            input_quantity("Минимальный желаемый запас: "),
+        )
+    elif choice == "3":
+        show_products(data)
+        if not data["products"]:
+            raise ValueError("Сначала добавьте продукт.")
+        product_id = input_int("ID продукта: ")
+        product = find_product(data["products"], product_id)
+        add_stock(
+            data["products"], data["stocks"], product_id,
+            input_quantity(f"Количество ({product['unit']}): ", True),
+            input_date("Срок годности (ГГГГ-ММ-ДД): "),
+        )
+    else:
+        show_stocks(data)
+        if not data["stocks"]:
+            raise ValueError("Сначала добавьте партию.")
+        stock_id = input_int("ID партии: ")
+        if choice == "5":
+            consume_stock(data["stocks"], stock_id,
+                          input_quantity("Списать количество: ", True))
+        else:
+            remove_stock(data["stocks"], stock_id)
+
+
+def show_report(choice: str, data: dict) -> None:
+    """Вывести каталог, поиск, партии, покупки или статистику."""
+    if choice == "1":
+        show_products(data)
+    elif choice == "4":
+        show_stocks(data)
+    elif choice == "7":
+        show_products(data, input_text("Часть названия: "))
+    elif choice == "8":
+        show_stocks(data, urgent_only=True)
+    elif choice == "9":
+        items = shopping_list(data["products"], data["stocks"], date.today())
+        if not items:
+            print("Покупки не требуются.")
+        for item in items:
+            print(f"{item['name']}: купить "
+                  f"{item['quantity']:g} {item['unit']}")
+    else:
+        stats = inventory_statistics(
+            data["products"], data["stocks"], date.today()
+        )
+        print(f"Продуктов: {stats['products']}; партий: {stats['stocks']}; "
+              f"просроченных партий: {stats['expired']}; "
+              f"продуктов к покупке: {stats['need_purchase']}")
+
+
+def run_menu(path: Path, data: dict) -> None:
+    """Обрабатывать команды; сохранять изменения до замены данных в памяти."""
+    while True:
+        print("\n1. Продукты и остатки   2. Добавить продукт\n"
+              "3. Добавить партию      4. Партии по сроку годности\n"
+              "5. Списать количество   6. Удалить партию\n"
+              "7. Поиск продуктов      8. Просроченные и истекающие за 3 дня\n"
+              "9. Список покупок      10. Статистика\n0. Выход")
+        choice = input("Выберите действие: ").strip()
+        if choice == "0":
+            return
+        if choice not in {str(number) for number in range(1, 11)}:
+            print("Неизвестная команда. Выберите пункт от 0 до 10.")
+            continue
+        try:
+            if choice in {"2", "3", "5", "6"}:
+                changed = deepcopy(data)
+                change_data(choice, changed)
+                save_data(path, changed)
+                data = changed
+                print("Изменения сохранены.")
+            else:
+                show_report(choice, data)
+        except (ValueError, OSError) as error:
+            print(f"Операция не выполнена: {error}")
+
+
+def main() -> int:
+    """Загрузить данные и запустить меню с обработкой ошибок."""
+    parser = argparse.ArgumentParser(description="Контроль запасов продуктов")
+    parser.add_argument("--data", type=Path, default=DEFAULT_PATH,
+                        help="путь к JSON-файлу данных")
+    args = parser.parse_args()
+    try:
+        data = load_data(args.data)
+    except (ValueError, OSError) as error:
+        print(f"Не удалось загрузить данные: {error}")
+        print("Исправьте файл или укажите другой через --data. "
+              "Файл не изменён.")
+        return 1
+    print(f"FoodStorage — контроль запасов продуктов\nДанные: {args.data}")
+    try:
+        run_menu(args.data, data)
+    except (EOFError, KeyboardInterrupt):
+        print("\nВвод прерван. Завершённые операции уже сохранены.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

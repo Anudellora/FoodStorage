@@ -8,3 +8,5 @@ __pycache__/
 htmlcov/
 .env
 *.log
+data/inventory.json
+data/.*.tmp
